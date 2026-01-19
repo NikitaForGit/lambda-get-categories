@@ -70,14 +70,14 @@ jobs:
           command: |
             aws s3 cp dist/lambda-get-categories.zip \
               "s3://${LAMBDA_ARTIFACTS_BUCKET}/lambda/get_categories.zip"
-      # - run:
-      #     name: Update Lambda function
-      #     command: |
-      #       aws lambda update-function-code \
-      #         --function-name "${PROJECT_NAME}-${ENVIRONMENT}-get-categories" \
-      #         --s3-bucket "${LAMBDA_ARTIFACTS_BUCKET}" \
-      #         --s3-key "lambda/get_categories.zip" \
-      #         --publish
+      - run:
+          name: Update Lambda function
+          command: |
+            aws lambda update-function-code \
+              --function-name "get-categories" \
+              --s3-bucket "${LAMBDA_ARTIFACTS_BUCKET}" \
+              --s3-key "lambda/get_categories.zip" \
+              --publish
       - run:
           name: Deployment Summary
           command: |
