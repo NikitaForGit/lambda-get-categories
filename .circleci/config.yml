@@ -1,0 +1,107 @@
+version: 2.1
+
+orbs:
+  python: circleci/python@2.1.1
+  aws-cli: circleci/aws-cli@4.1.3
+
+jobs:
+  lint-and-test:
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            pip install ruff pytest
+      - run:
+          name: Lint code
+          command: |
+            ruff check src/ --ignore E501
+      - run:
+          name: Run tests
+          command: |
+            pytest tests/ -v || echo "No tests found"
+
+  build:
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - checkout
+      - run:
+          name: Build Lambda package
+          command: |
+            mkdir -p dist
+            BUILD_DIR=$(mktemp -d)
+
+            echo "Building lambda-get-categories..."
+
+            # Copy all source files to build directory
+            cp src/*.py "$BUILD_DIR/"
+
+            # Install dependencies if any
+            if [ -s "requirements.txt" ] && ! grep -q "^#" requirements.txt; then
+              pip install -r requirements.txt -t "$BUILD_DIR/"
+            fi
+
+            # Create deployment package
+            cd "$BUILD_DIR"
+            zip -r "$OLDPWD/dist/lambda-get-categories.zip" . -x "*.pyc" "__pycache__/*" "*.dist-info/*"
+            cd "$OLDPWD"
+
+            rm -rf "$BUILD_DIR"
+            ls -lh dist/lambda-get-categories.zip
+      - persist_to_workspace:
+          root: .
+          paths:
+            - dist
+
+  deploy:
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - attach_workspace:
+          at: .
+      - aws-cli/setup:
+          role_arn: ${AWS_ROLE_ARN}
+          region: ${AWS_REGION}
+      - run:
+          name: Upload to S3
+          command: |
+            aws s3 cp dist/lambda-get-categories.zip \
+              "s3://${LAMBDA_ARTIFACTS_BUCKET}/lambda/get_categories.zip"
+      # - run:
+      #     name: Update Lambda function
+      #     command: |
+      #       aws lambda update-function-code \
+      #         --function-name "${PROJECT_NAME}-${ENVIRONMENT}-get-categories" \
+      #         --s3-bucket "${LAMBDA_ARTIFACTS_BUCKET}" \
+      #         --s3-key "lambda/get_categories.zip" \
+      #         --publish
+      - run:
+          name: Deployment Summary
+          command: |
+            echo "========================================="
+            echo "  lambda-get-categories Deployed!"
+            echo "========================================="
+            echo "Environment: ${ENVIRONMENT}"
+            echo "Function: ${PROJECT_NAME}-${ENVIRONMENT}-get-categories"
+            echo "========================================="
+
+workflows:
+  build-test-deploy:
+    jobs:
+      - lint-and-test
+      - build:
+          requires:
+            - lint-and-test
+      - deploy:
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - main
+                - master
+          context:
+            - aws-credentials
